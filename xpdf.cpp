@@ -34,39 +34,18 @@ bool XPDF::isValid(PDSTRUCT *pPdStruct)
 {
     Q_UNUSED(pPdStruct)
 
-    bool bResult = false;
-    qint64 nFileSize = getSize();
-    // TODO more checks !!!
-    // 1.0-2.0
-    // %PDF-
-    if (nFileSize > 4) {
-        quint32 nHeader = read_uint32(0);
-        if (nHeader == 0x46445025)  // '%PDF'
-        {
-            bResult = true;
-        }
-    }
-
-    return bResult;
+    return (getSize() > 4) && (read_uint32(0) == 0x46445025);
 }
 
 bool XPDF::isValid(QIODevice *pDevice, PDSTRUCT *pPdStruct)
 {
-    bool bResult = false;
-
-    if (pDevice) {
-        XPDF pdf(pDevice);
-        bResult = pdf.isValid(pPdStruct);
-    }
-
-    return bResult;
+    XPDF pdf(pDevice);
+    return pdf.isValid(pPdStruct);
 }
 
 QString XPDF::getVersion()
 {
-    QString sResult;
-    sResult = _readPDFString(5, 3, nullptr).sString;
-    return sResult;
+    return _readPDFString(5, 3, nullptr).sString;
 }
 
 XBinary::FT XPDF::getFileType()
@@ -101,7 +80,7 @@ QString XPDF::getMIMEString()
 
 XBinary::MODE XPDF::getMode()
 {
-    return MODE_UNKNOWN;  // PDF does not have a specific mode like 16/32/64
+    return MODE_UNKNOWN;
 }
 
 QList<XPDF::OBJECT> XPDF::findObjects(qint64 nOffset, qint64 nSize, bool bDeepScan, PDSTRUCT *pPdStruct)
@@ -117,12 +96,10 @@ QList<XPDF::OBJECT> XPDF::findObjects(qint64 nOffset, qint64 nSize, bool bDeepSc
     qint64 nEndBound = nOffset + nSize;
 
     while (XBinary::isPdStructNotCanceled(pPdStruct) && (nCurrentOffset < nEndBound)) {
-        // Read a small header token; 64 bytes is enough to capture "<num> <gen> obj" and comments
         OS_STRING osString = _readPDFString(nCurrentOffset, 64, pPdStruct);
 
         if (_isObject(osString.sString)) {
             quint64 nID = getObjectID(osString.sString);
-            // Bound the search for endobj to the current scan window
             qint64 nSearchStart = nCurrentOffset + osString.nSize;
             qint64 nSearchLen = qMax<qint64>(0, nEndBound - nSearchStart);
             qint64 nEndObjOffset = (nSearchLen > 0) ? find_ansiString(nSearchStart, nSearchLen, "endobj", pPdStruct) : -1;
@@ -146,7 +123,6 @@ QList<XPDF::OBJECT> XPDF::findObjects(qint64 nOffset, qint64 nSize, bool bDeepSc
                 break;
             }
         } else if (_isComment(osString.sString)) {
-            // osString.nSize already includes trailing line ending; no extra skip needed
             nCurrentOffset += osString.nSize;
         } else {
             bool bContinue = false;
@@ -158,7 +134,6 @@ QList<XPDF::OBJECT> XPDF::findObjects(qint64 nOffset, qint64 nSize, bool bDeepSc
                     while ((nCurrentOffset > 0) && XBinary::isPdStructNotCanceled(pPdStruct)) {
                         quint8 nPrevChar = read_uint8(nCurrentOffset - 1);
 
-                        // If not number and not space
                         if (!(((nPrevChar >= '0') && (nPrevChar <= '9')) || (nPrevChar == ' '))) {
                             break;
                         }
@@ -287,18 +262,16 @@ QList<XPDF::OBJECT> XPDF::getObjectsFromStartxref(const STARTHREF *pStartxref, P
             OBJECT object;
             object.nOffset = iterator.key();
             object.nID = iterator.value();
-            object.nSize = 0;  // Will be calculated later
+            object.nSize = 0;
 
             listResult.append(object);
         }
 
         qint32 nNumberOfObjects = listResult.count();
-        // Calculate sizes based on consecutive offsets
         for (qint32 i = 0; (i < nNumberOfObjects - 1) && XBinary::isPdStructNotCanceled(pPdStruct); ++i) {
             listResult[i].nSize = listResult[i + 1].nOffset - listResult[i].nOffset;
         }
 
-        // Handle the last object's size using nXrefOffset
         if (!listResult.isEmpty()) {
             listResult.last().nSize = pStartxref->nXrefOffset - listResult.last().nOffset;
         }
@@ -330,7 +303,6 @@ XBinary::OS_STRING XPDF::_readPDFString(qint64 nOffset, qint64 nSize, PDSTRUCT *
         return result;
     }
 
-    // Bulk read into buffer
     QByteArray baData = read_array(nOffset, nSize);
     const char *pData = baData.constData();
     qint32 nDataSize = baData.size();
@@ -412,7 +384,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
         return result;
     }
 
-    // Single bulk read for token parsing + trailing whitespace consumption
     qint64 nChunkSize = qMin<qint64>(512, nRemaining);
     QByteArray baData = read_array(nOffset, nChunkSize);
     const char *pData = baData.constData();
@@ -427,7 +398,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
     bool bNeedFallbackWhitespace = false;
 
     if (nChar == '/') {
-        // Inline const token parsing from buffer
         bool bIsFirst = true;
         qint32 nPos = 0;
         for (; (nPos < nDataSize) && XBinary::isPdStructNotCanceled(pPdStruct); ++nPos) {
@@ -443,7 +413,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
         result.sString = QString::fromLatin1(pData, nPos);
         nTokenEnd = nPos;
     } else if (nChar == '(') {
-        // String tokens: complex (Unicode/escapes), fall back to existing function
         result = _readPDFStringPart_str(nOffset, pPdStruct);
         bNeedFallbackWhitespace = true;
     } else if (nChar == '<') {
@@ -451,7 +420,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
             result.sString = QStringLiteral("<<");
             nTokenEnd = 2;
         } else {
-            // Hex strings can be very large, fall back to existing function
             result = _readPDFStringPart_hex(nOffset, pPdStruct);
             bNeedFallbackWhitespace = true;
         }
@@ -467,7 +435,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
         result.sString = QStringLiteral("]");
         nTokenEnd = 1;
     } else {
-        // Inline val token parsing from buffer
         bool bSpace = false;
         qint32 nPos = 0;
         for (; (nPos < nDataSize) && XBinary::isPdStructNotCanceled(pPdStruct); ++nPos) {
@@ -484,7 +451,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
         result.sString = QString::fromLatin1(pData, bSpace ? (nPos - 1) : nPos);
         nTokenEnd = nPos;
 
-        // Check for "0 R" indirect reference suffix after space
         if (bSpace) {
             if ((nPos + 2) < nDataSize) {
                 if ((pData[nPos] == '0') && (pData[nPos + 1] == ' ') && (pData[nPos + 2] == 'R')) {
@@ -492,7 +458,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
                     nTokenEnd = nPos + 3;
                 }
             } else {
-                // Near buffer end, fall back to separate read
                 qint64 nSuffixRemaining = nFileSize - (nOffset + nPos);
                 if (nSuffixRemaining >= 3) {
                     QByteArray baSuffix = read_array(nOffset + nPos, 3);
@@ -506,16 +471,13 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
     }
 
     if (bNeedFallbackWhitespace) {
-        // For string/hex tokens, use per-byte whitespace skipping (rare, complex tokens)
         qint64 nNewOffset = nOffset + result.nSize;
         result.nSize += skipPDFSpace(&nNewOffset, pPdStruct);
         result.nSize += skipPDFEnding(&nNewOffset, pPdStruct);
         return result;
     }
 
-    // Consume trailing whitespace from the same buffer (no additional I/O)
     qint32 nPos = nTokenEnd;
-    // Skip spaces
     while (nPos < nDataSize) {
         if (static_cast<quint8>(pData[nPos]) == ' ') {
             ++nPos;
@@ -523,7 +485,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart(qint64 nOffset, PDSTRUCT *pPdStruct)
             break;
         }
     }
-    // Skip line endings (CR, LF, CRLF)
     while (nPos < nDataSize) {
         quint8 c = static_cast<quint8>(pData[nPos]);
         if (c == 10) {
@@ -553,7 +514,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_const(qint64 nOffset, PDSTRUCT *pPdS
         return result;
     }
 
-    // Bulk read a chunk (PDF const tokens are short, 256 bytes is more than enough)
     qint64 nChunkSize = qMin<qint64>(256, nFileSize - nOffset);
     QByteArray baData = read_array(nOffset, nChunkSize);
     const char *pData = baData.constData();
@@ -597,7 +557,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_str(qint64 nOffset, PDSTRUCT *pPdStr
         return result;
     }
 
-    // Bulk read into buffer to avoid per-byte read_uint8() I/O
     const qint64 CHUNK_SIZE = 4096;
     qint64 nChunkSize = qMin(CHUNK_SIZE, nRemaining);
     QByteArray baData = read_array(nOffset, nChunkSize);
@@ -612,7 +571,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_str(qint64 nOffset, PDSTRUCT *pPdStr
     bool bBSlash = false;
 
     while (XBinary::isPdStructNotCanceled(pPdStruct)) {
-        // Refill buffer if exhausted
         if (nBufPos >= nBufSize) {
             qint64 nNewOffset = nBufFileOffset + nBufSize;
             qint64 nNewRemaining = nFileSize - nNewOffset;
@@ -636,7 +594,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_str(qint64 nOffset, PDSTRUCT *pPdStr
             if (!bStart) {
                 if (nChar == '(') {
                     bStart = true;
-                    // Check UTF-16BE BOM after '('
                     qint64 nBomFilePos = nBufFileOffset + nBufPos + 1;
                     if ((nBomFilePos + 1) < nFileSize) {
                         quint8 nByte1, nByte2;
@@ -675,9 +632,7 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_str(qint64 nOffset, PDSTRUCT *pPdStr
             ++result.nSize;
             ++nBufPos;
         } else {
-            // Unicode path: need 2 bytes available
             if (nBufPos + 1 >= nBufSize) {
-                // Refill with overlap: move back to current file position
                 qint64 nNewOffset = nBufFileOffset + nBufPos;
                 qint64 nNewRemaining = nFileSize - nNewOffset;
                 if (nNewRemaining < 2) break;
@@ -743,7 +698,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_val(qint64 nOffset, PDSTRUCT *pPdStr
         return result;
     }
 
-    // Bulk read a chunk (val tokens are short)
     qint64 nChunkSize = qMin<qint64>(256, nRemaining);
     QByteArray baData = read_array(nOffset, nChunkSize);
     const char *pData = baData.constData();
@@ -770,7 +724,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_val(qint64 nOffset, PDSTRUCT *pPdStr
     result.nSize = nPos;
 
     if (bSpace) {
-        // Check for "0 R" suffix in the already-read buffer
         if ((nPos + 2) < nDataSize) {
             if ((pData[nPos] == '0') && (pData[nPos + 1] == ' ') && (pData[nPos + 2] == 'R')) {
                 result.sString.append(QLatin1String(" 0 R"));
@@ -807,14 +760,11 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_hex(qint64 nOffset, PDSTRUCT *pPdStr
         return result;
     }
 
-    // First byte must be '<'
     const quint8 nFirst = read_uint8(nOffset);
     if (nFirst != '<') {
         return result;
     }
 
-    // Bulk read a chunk; hex strings in PDF are typically short
-    // but can be large for palettes; read up to 64KB at a time
     qint64 nChunkSize = qMin<qint64>(65536, nRemaining);
     QByteArray baData = read_array(nOffset, nChunkSize);
     const char *pData = baData.constData();
@@ -831,7 +781,6 @@ XBinary::OS_STRING XPDF::_readPDFStringPart_hex(qint64 nOffset, PDSTRUCT *pPdStr
     result.sString = QString::fromLatin1(pData, nPos);
     result.nSize = nPos;
 
-    // If we didn't find '>' in the first chunk, continue reading
     if ((nPos == nDataSize) && (static_cast<quint8>(pData[nDataSize - 1]) != '>')) {
         qint64 nNextOffset = nOffset + nChunkSize;
         while ((nNextOffset < nFileSize) && XBinary::isPdStructNotCanceled(pPdStruct)) {
@@ -878,7 +827,7 @@ XBinary::_MEMORY_MAP XPDF::getMemoryMap(MAPMODE mapMode, PDSTRUCT *pPdStruct)
     XBinary::_MEMORY_MAP result = {};
 
     if (mapMode == MAPMODE_UNKNOWN) {
-        mapMode = MAPMODE_DATA;  // Default mode
+        mapMode = MAPMODE_DATA;
     }
 
     if (mapMode == MAPMODE_OBJECTS) {
@@ -924,7 +873,6 @@ QList<XPDF::STARTHREF> XPDF::findStartxrefs(qint64 nOffset, PDSTRUCT *pPdStruct)
             if (osEnd.sString.startsWith(QStringLiteral("%%EOF"))) {
                 nCurrent += 5;
 
-                // Skip optional CR and LF, bounds-checked
                 if ((nCurrent < nFileSize) && (read_uint8(nCurrent) == 13)) {
                     ++nCurrent;
                 }
@@ -946,12 +894,12 @@ QList<XPDF::STARTHREF> XPDF::findStartxrefs(qint64 nOffset, PDSTRUCT *pPdStruct)
 
                 OS_STRING osAppend = _readPDFString(nCurrent, 20, pPdStruct);
                 if ((!_isObject(osAppend.sString)) && (!_isComment(osAppend.sString)) && (!_isXref(osAppend.sString))) {
-                    break;  // No append
+                    break;
                 }
             }
         }
 
-        nOffset = nStartXref + 10;  // Get the last
+        nOffset = nStartXref + 10;
     }
 
     return listResult;
@@ -966,7 +914,6 @@ XPDF::XPART XPDF::handleXpart(qint64 nOffset, qint32 nID, qint32 nPartLimit, PDS
     QString sLength;
     bool bLength = false;
 
-    // Pre-cache file size to avoid repeated virtual calls
     const qint64 nFileSize = getSize();
 
     while (XBinary::isPdStructNotCanceled(pPdStruct)) {
@@ -983,7 +930,6 @@ XPDF::XPART XPDF::handleXpart(qint64 nOffset, qint32 nID, qint32 nPartLimit, PDS
             qint32 nObj = 0;
             qint32 nCol = 0;
             qint32 nPartCount = 0;
-            // Pre-reserve to reduce reallocation in the inner loop
             result.listParts.reserve(32);
             while (XBinary::isPdStructNotCanceled(pPdStruct)) {
                 OS_STRING osStringPart = _readPDFStringPart(nOffset, pPdStruct);
@@ -1002,7 +948,6 @@ XPDF::XPART XPDF::handleXpart(qint64 nOffset, qint32 nID, qint32 nPartLimit, PDS
                     break;
                 }
 
-                // Fast token dispatch: check length first, then first char
                 const qint32 nStrLen = osStringPart.sString.size();
 
                 if (nStrLen == 1) {
@@ -1039,8 +984,6 @@ XPDF::XPART XPDF::handleXpart(qint64 nOffset, qint32 nID, qint32 nPartLimit, PDS
             stream.nOffset = nOffset;
             bool bHasStreamSize = false;
 
-            // Detect indirect reference: sLength captured only the first token (e.g., "8" from "8 0 R").
-            // Check the parts list for "sLength", "0", "R" sequence to determine if it's an indirect reference.
             bool bIndirectLength = false;
             bool bLengthTokenIsNumber = false;
             qint64 nLengthToken = sLength.section(" ", 0, 0).toLongLong(&bLengthTokenIsNumber);
@@ -1069,17 +1012,14 @@ XPDF::XPART XPDF::handleXpart(qint64 nOffset, qint32 nID, qint32 nPartLimit, PDS
             } else if (sLength.section(" ", 2, 2) == QLatin1String("R")) {
                 QString sPattern = sLength;
                 sPattern.replace("R", "obj");
-                // Limit search scope: search forward first (1MB), then fall back to full file
                 qint64 nSearchSize = qMin<qint64>(1048576, nFileSize - nOffset);
                 qint64 nObjectOffset = find_ansiString(nOffset, nSearchSize, sPattern, pPdStruct);
 
                 if (nObjectOffset == -1) {
-                    // Fall back: search from beginning of file up to nOffset
                     nObjectOffset = find_ansiString(0, nOffset, sPattern, pPdStruct);
                 }
 
                 if (nObjectOffset == -1) {
-                    // Final fall back: full file search
                     nObjectOffset = find_ansiString(0, -1, sPattern, pPdStruct);
                 }
 
@@ -1108,7 +1048,6 @@ XPDF::XPART XPDF::handleXpart(qint64 nOffset, qint32 nID, qint32 nPartLimit, PDS
                 result.listStreams.append(stream);
             }
         } else if (osString.sString == QLatin1String("endstream")) {
-            // TODO
         } else if (_isEndObject(osString.sString)) {
             break;
         } else if (osString.sString.isEmpty()) {
@@ -1123,15 +1062,12 @@ XPDF::XPART XPDF::handleXpart(qint64 nOffset, qint32 nID, qint32 nPartLimit, PDS
 
 bool XPDF::_isObject(const QString &sString)
 {
-    // Fast check: last token equals "obj"
     qint32 nI = sString.size();
-    while (nI > 0 && sString.at(nI - 1) == QChar(' ')) --nI;  // trim right spaces
-    const qint32 nTokenLen = 3;                               // "obj"
+    while (nI > 0 && sString.at(nI - 1) == QChar(' ')) --nI;
+    const qint32 nTokenLen = 3;
     if (nI < nTokenLen) return false;
-    // Ensure boundary before token is start or space
     const qint32 nStart = nI - nTokenLen;
     if (!((nStart == 0) || (sString.at(nStart - 1) == QChar(' ')))) return false;
-    // Compare without allocating
     return (sString.at(nStart) == QChar('o') && sString.at(nStart + 1) == QChar('b') && sString.at(nStart + 2) == QChar('j'));
 }
 
@@ -1181,7 +1117,6 @@ bool XPDF::_isDateTime(const QString &sString)
 
 bool XPDF::_isEndObject(const QString &sString)
 {
-    // Compare against "endobj" ignoring surrounding spaces without allocating
     qint32 nLeft = 0;
     qint32 nRight = sString.size();
     while (nLeft < nRight && sString.at(nLeft) == QChar(' ')) ++nLeft;
@@ -1207,7 +1142,6 @@ bool XPDF::_isXref(const QString &sString)
     bool bResult = false;
 
     if (!sString.isEmpty()) {
-        // Fast path: check prefix "xref" and boundary
         const qint32 nTLen = 4;
         if (sString.size() >= nTLen && sString.at(0) == QChar('x') && sString.at(1) == QChar('r') && sString.at(2) == QChar('e') && sString.at(3) == QChar('f')) {
             bResult = (sString.size() == nTLen) || (sString.at(4) == QChar(' '));
@@ -1260,8 +1194,6 @@ QDateTime XPDF::_getDateTime(const QString &sString)
     sDate = sDate.section(")", 0, 0);
     sDate.remove(QChar('\''));
     sDate.replace(QChar('Z'), QChar('+'));
-    // sDate.resize(14, QChar('0'));
-
     result = QDateTime::fromString(sDate, "yyyyMMddhhmmsstt");
 
     return result;
@@ -1269,7 +1201,6 @@ QDateTime XPDF::_getDateTime(const QString &sString)
 
 qint32 XPDF::getObjectID(const QString &sString)
 {
-    // Parse leading integer (until first space) without allocating
     qint64 n = 0;
     bool bNeg = false;
     qint32 nI = 0;
@@ -1349,7 +1280,6 @@ QList<XPDF::XPART> XPDF::getParts(qint32 nPartLimit, PDSTRUCT *pPdStruct)
             if (startxref.bIsXref) {
                 listObject.append(getObjectsFromStartxref(&startxref, pPdStruct));
             } else if (startxref.bIsObject) {
-                // listObject = findObjects(startxref.nXrefOffset, startxref.nFooterOffset - startxref.nXrefOffset, true, pPdStruct);
                 listObject = findObjects(0, startxref.nFooterOffset, true, pPdStruct);
             }
         }
@@ -1442,11 +1372,9 @@ QString XPDF::getHeaderCommentAsHex(PDSTRUCT *pPdStruct)
     const qint64 nFileSize = getSize();
     qint64 nCurrentOffset = 0;
 
-    // Read header line ("%PDF-...") and advance just past its line ending
     OS_STRING osString = _readPDFString(nCurrentOffset, 100, pPdStruct);
-    nCurrentOffset += osString.nSize;  // _readPDFString already counted trailing EOL
+    nCurrentOffset += osString.nSize;
 
-    // Ensure we are within file bounds and next line starts with '%'
     if ((nCurrentOffset < nFileSize) && (read_uint8(nCurrentOffset) == '%')) {
         ++nCurrentOffset;
 
@@ -1470,7 +1398,7 @@ QString XPDF::getFilters(PDSTRUCT *pPdStruct)
 {
     QString sResult;
 
-    QList<XPART> listParts = getParts(100, pPdStruct);  // TODO limit
+    QList<XPART> listParts = getParts(100, pPdStruct);
     const QList<XBinary::XVARIANT> listValues = getValuesByKey(&listParts, QLatin1String("/Filter"), pPdStruct);
 
     QStringList filters;
@@ -1496,7 +1424,7 @@ QString XPDF::getInfo(PDSTRUCT *pPdStruct)
 
 QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDSTRUCT *pPdStruct)
 {
-    Q_UNUSED(nLimit)  // TODO limit
+    Q_UNUSED(nLimit)
 
     QList<XBinary::FPART> listResult;
 
@@ -1548,10 +1476,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                 }
             }
 
-            // if (startxref.nFooterOffset - nCurrentOffset > 0) {
-            //     // Trailer
-            // }
-
             if (nFileParts & FILEPART_FOOTER) {
                 FPART record = {};
 
@@ -1567,7 +1491,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
 
         nMaxOffset = listStrartHrefs.at(nNumberOfFrefs - 1).nFooterOffset + listStrartHrefs.at(nNumberOfFrefs - 1).nFooterSize;
     } else {
-        // File damaged;
         listObject.append(findObjects(0, -1, false, pPdStruct));
 
         qint32 nNumberOfObjects = listObject.count();
@@ -1647,7 +1570,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                     const QString sFilter = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/Filter"), pPdStruct).var.toString();
                     const QString sSubtype = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/Subtype"), pPdStruct).var.toString();
 
-                    // Store filter name and subtype for all streams
                     if (!sFilter.isEmpty()) {
                         record.mapProperties.insert(FPART_PROP_FILTERNAME, sFilter);
                     }
@@ -1655,7 +1577,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                         record.mapProperties.insert(FPART_PROP_SUBTYPE, sSubtype);
                     }
 
-                    // Determine decompression method from filter
                     HANDLE_METHOD decompressMethod = HANDLE_METHOD_STORE;
 
                     if (sFilter == QLatin1String("/FlateDecode")) {
@@ -1665,7 +1586,7 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                     } else if (sFilter == QLatin1String("/ASCII85Decode")) {
                         decompressMethod = HANDLE_METHOD_ASCII85;
                     } else if (sFilter == QLatin1String("/DCTDecode")) {
-                        decompressMethod = HANDLE_METHOD_STORE;  // JPEG data, stored as-is
+                        decompressMethod = HANDLE_METHOD_STORE;
                     } else if (sFilter == QLatin1String("/CCITTFaxDecode")) {
                         decompressMethod = HANDLE_METHOD_STORE;
                     } else if (sFilter == QLatin1String("[")) {
@@ -1680,13 +1601,11 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
 
                     record.mapProperties.insert(FPART_PROP_HANDLEMETHOD, decompressMethod);
 
-                    // Check if this is an image stream
                     if (sSubtype == QLatin1String("/Image")) {
                         const qint32 nWidth = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/Width"), pPdStruct).var.toInt();
                         const qint32 nHeight = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/Height"), pPdStruct).var.toInt();
                         const qint32 nBitsPerComponent = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/BitsPerComponent"), pPdStruct).var.toInt();
 
-                        // Parse ColorSpace - may be a simple name or an array like [/Indexed /DeviceRGB 255 <palette>]
                         QString sColorSpace;
                         QString sBaseColorSpace;
                         QByteArray baPalette;
@@ -1700,7 +1619,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                     const QString &sNext = xpart.listParts.at(p + 1);
 
                                     if (sNext == QLatin1String("[")) {
-                                        // Array colorspace: collect tokens until ]
                                         QStringList listTokens;
 
                                         for (qint32 q = p + 2; q < nParts; ++q) {
@@ -1712,23 +1630,21 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                         }
 
                                         if (listTokens.count() >= 1) {
-                                            sColorSpace = listTokens.at(0);  // e.g. /Indexed
+                                            sColorSpace = listTokens.at(0);
                                         }
 
                                         if ((sColorSpace == QLatin1String("/Indexed")) && (listTokens.count() >= 3)) {
-                                            sBaseColorSpace = listTokens.at(1);  // e.g. /DeviceRGB
+                                            sBaseColorSpace = listTokens.at(1);
                                             nMaxIndex = listTokens.at(2).toInt();
 
                                             if (listTokens.count() >= 4) {
                                                 QString sPaletteToken = listTokens.at(3);
 
                                                 if (sPaletteToken.startsWith(QLatin1Char('<')) && sPaletteToken.endsWith(QLatin1Char('>'))) {
-                                                    // Inline hex palette
                                                     QString sPaletteHex = sPaletteToken.mid(1, sPaletteToken.length() - 2);
                                                     baPalette = QByteArray::fromHex(sPaletteHex.toLatin1());
                                                 } else if (sPaletteToken.endsWith(QLatin1String(" R")) ||
                                                            ((listTokens.count() >= 6) && (listTokens.at(5) == QLatin1String("R")))) {
-                                                    // Indirect reference: either merged "objNum genNum R" token or separate tokens
                                                     QString sObjRef;
                                                     if (sPaletteToken.endsWith(QLatin1String(" R"))) {
                                                         sObjRef = sPaletteToken;
@@ -1748,7 +1664,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                                             const STREAM &palStream = palPart.listStreams.at(0);
                                                             QByteArray baRawPalette = read_array_process(palStream.nOffset, palStream.nSize, pPdStruct);
 
-                                                            // Determine palette stream filter
                                                             QString sPalFilter;
                                                             qint32 nPalParts = palPart.listParts.count();
                                                             for (qint32 f = 0; f < nPalParts - 1; ++f) {
@@ -1797,7 +1712,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                                                     }
                                                                 }
                                                             } else {
-                                                                // Unfiltered palette stream
                                                                 baPalette = baRawPalette;
                                                             }
                                                         }
@@ -1831,15 +1745,13 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                         }
 
                         if (sFilter == QLatin1String("/DCTDecode")) {
-                            // JPEG image: extract as JPEG
                             record.mapProperties.insert(FPART_PROP_FILETYPE, XBinary::FT_JPEG);
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("jpg"));
                             record.mapProperties.insert(FPART_PROP_INFO, QString("%1 JPEG (%2 x %3) [%4] %5")
                                                                              .arg(tr("Image"), QString::number(nWidth), QString::number(nHeight),
                                                                                   QString::number(nBitsPerComponent), sColorSpace));
                         } else if (sFilter == QLatin1String("/CCITTFaxDecode")) {
-                            // CCITT Fax image: extract as TIFF with proper container
-                            qint32 nCcittK = -1;  // Default: Group 4
+                            qint32 nCcittK = -1;
                             XBinary::XVARIANT varK = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/K"), pPdStruct);
                             if (!varK.var.isNull()) {
                                 nCcittK = varK.var.toInt();
@@ -1851,7 +1763,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                                         QString("%1 CCITT (%2 x %3) [%4]")
                                                             .arg(tr("Image"), QString::number(nWidth), QString::number(nHeight), QString::number(nBitsPerComponent)));
                         } else {
-                            // Raw pixel data: will be converted to PNG during unpack
                             record.mapProperties.insert(FPART_PROP_HANDLEMETHOD2, decompressMethod);
                             record.mapProperties.insert(FPART_PROP_HANDLEMETHOD, HANDLE_METHOD_PDF_IMAGEDATA);
                             record.mapProperties.insert(FPART_PROP_FILETYPE, XBinary::FT_PNG);
@@ -1861,19 +1772,15 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                                                                   QString::number(nBitsPerComponent), sColorSpace, sFilter));
                         }
                     } else {
-                        // Non-image stream: set extension and info based on filter/subtype/metadata
                         if (sSubtype == QLatin1String("/XML")) {
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("xml"));
                             record.mapProperties.insert(FPART_PROP_FILETYPE, FT_XML);
                         } else if ((sSubtype == QLatin1String("/Type1C")) || (sSubtype == QLatin1String("/CIDFontType0C"))) {
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("cff"));
                         } else if (!getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/Length1"), pPdStruct).var.isNull()) {
-                            // TrueType font program: /Length1 indicates original font file size
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("ttf"));
                             record.mapProperties.insert(FPART_PROP_FILETYPE, FT_TTF);
                         } else if (sSubtype.isEmpty() && !getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/N"), pPdStruct).var.isNull()) {
-                            // Possible ICC color profile: has /N key and no subtype
-                            // Verify by checking "acsp" signature at offset 36 of decompressed data
                             bool bIsICC = false;
 
                             if (decompressMethod == HANDLE_METHOD_STORE) {
@@ -1881,7 +1788,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                     bIsICC = (read_uint32(stream.nOffset + 36, true) == 0x61637370);
                                 }
                             } else if (stream.nSize >= 40) {
-                                // Compressed: decompress header to check signature
                                 qint64 nReadSize = qMin(stream.nSize, (qint64)256);
                                 QByteArray baRaw = read_array(stream.nOffset, nReadSize);
 
@@ -1926,14 +1832,11 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                         } else if (sFilter == QLatin1String("/CCITTFaxDecode")) {
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("bin"));
                         } else if ((decompressMethod == HANDLE_METHOD_STORE) && (stream.nSize >= 4)) {
-                            // Uncompressed stream without metadata: detect by magic bytes
                             quint32 nMagic = read_uint32(stream.nOffset, true);
                             if (nMagic == 0x00010000) {
-                                // TrueType font
                                 record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("ttf"));
                                 record.mapProperties.insert(FPART_PROP_FILETYPE, FT_TTF);
                             } else if ((stream.nSize >= 40) && (read_uint32(stream.nOffset + 36, true) == 0x61637370)) {
-                                // ICC color profile ("acsp" signature at offset 36)
                                 record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("icc"));
                                 record.mapProperties.insert(FPART_PROP_FILETYPE, FT_ICC);
                             } else {
@@ -1945,7 +1848,6 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("bin"));
                         }
 
-                        // Store info about the stream
                         QStringList listInfo;
                         if (!sSubtype.isEmpty()) {
                             listInfo << sSubtype;
@@ -1965,12 +1867,10 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
             }
         }
 
-        // Post-process: mark palette objects with .act extension
         if (!stPaletteObjectIds.isEmpty()) {
             qint32 nResultCount = listResult.count();
             for (qint32 r = 0; r < nResultCount; ++r) {
                 if (listResult.at(r).filePart == XBinary::FILEPART_STREAM) {
-                    // Extract object ID from name: "Stream obj (ID)"
                     QString sName = listResult.at(r).sName;
                     qint32 nParenOpen = sName.indexOf(QLatin1Char('('));
                     qint32 nParenClose = sName.indexOf(QLatin1Char(')'));
@@ -2014,18 +1914,15 @@ bool XPDF::initUnpack(UNPACK_STATE *pState, const QMap<UNPACK_PROP, QVariant> &m
         return false;
     }
 
-    // Initialize state
     pState->nCurrentOffset = 0;
     pState->nTotalSize = getSize();
     pState->nCurrentIndex = 0;
     pState->mapUnpackProperties = mapProperties;
     pState->pContext = nullptr;
 
-    // Get all streams from the PDF
     QList<XBinary::FPART> listStreams = getFileParts(FILEPART_STREAM, -1, pPdStruct);
 
     if (XBinary::isPdStructNotCanceled(pPdStruct)) {
-        // Create context
         UNPACK_CONTEXT *pContext = new UNPACK_CONTEXT;
         pContext->listStreams = listStreams;
         pContext->nCurrentStreamIndex = 0;
@@ -2057,16 +1954,13 @@ XBinary::ARCHIVERECORD XPDF::infoCurrent(UNPACK_STATE *pState, PDSTRUCT *pPdStru
 
     const XBinary::FPART &stream = pContext->listStreams.at(pContext->nCurrentStreamIndex);
 
-    // Fill archive record
     result.nStreamOffset = stream.nFileOffset;
     result.nStreamSize = stream.nFileSize;
 
-    // Generate filename from stream name, replacing invalid filename characters
     QString sFileName = stream.sName;
     static const QRegularExpression reInvalidChars(QStringLiteral("[/\\\\:*?\"<>|]"));
     sFileName.replace(reInvalidChars, QStringLiteral("_"));
 
-    // Add extension based on file type or compression
     HANDLE_METHOD primaryMethod = (HANDLE_METHOD)stream.mapProperties.value(FPART_PROP_HANDLEMETHOD, HANDLE_METHOD_STORE).toInt();
     QString sExt = stream.mapProperties.value(FPART_PROP_EXT).toString();
     if (sExt.isEmpty()) {
@@ -2083,7 +1977,6 @@ XBinary::ARCHIVERECORD XPDF::infoCurrent(UNPACK_STATE *pState, PDSTRUCT *pPdStru
     result.mapProperties.insert(FPART_PROP_UNCOMPRESSEDSIZE, stream.nFileSize);
     result.mapProperties.insert(FPART_PROP_COMPRESSEDSIZE, stream.nFileSize);
 
-    // Copy relevant properties from FPART
     QMapIterator<FPART_PROP, QVariant> it(stream.mapProperties);
     while (it.hasNext()) {
         it.next();

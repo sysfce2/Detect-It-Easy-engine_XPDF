@@ -61,22 +61,22 @@ public:
         QList<STREAM> listStreams;
     };
 
-    XPDF(QIODevice *pDevice);
-    virtual ~XPDF();
+    explicit XPDF(QIODevice *pDevice);
+    ~XPDF() override;
 
-    virtual bool isValid(PDSTRUCT *pPdStruct = nullptr) override;
+    bool isValid(PDSTRUCT *pPdStruct = nullptr) override;
     static bool isValid(QIODevice *pDevice, PDSTRUCT *pPdStruct = nullptr);
-    virtual QString getVersion() override;
-    virtual FT getFileType() override;
-    virtual ENDIAN getEndian() override;
-    virtual qint64 getFileFormatSize(PDSTRUCT *pPdStruct) override;
-    virtual QString getFileFormatExt() override;
-    virtual QString getFileFormatExtsString() override;
-    virtual MODE getMode() override;
-    virtual QString getMIMEString() override;
+    QString getVersion() override;
+    FT getFileType() override;
+    ENDIAN getEndian() override;
+    qint64 getFileFormatSize(PDSTRUCT *pPdStruct) override;
+    QString getFileFormatExt() override;
+    QString getFileFormatExtsString() override;
+    MODE getMode() override;
+    QString getMIMEString() override;
 
-    virtual QList<MAPMODE> getMapModesList() override;
-    virtual _MEMORY_MAP getMemoryMap(MAPMODE mapMode = MAPMODE_UNKNOWN, PDSTRUCT *pPdStruct = nullptr) override;
+    QList<MAPMODE> getMapModesList() override;
+    _MEMORY_MAP getMemoryMap(MAPMODE mapMode = MAPMODE_UNKNOWN, PDSTRUCT *pPdStruct = nullptr) override;
 
     QList<STARTHREF> findStartxrefs(qint64 nOffset, PDSTRUCT *pPdStruct);
     QList<OBJECT> getObjectsFromStartxref(const STARTHREF *pStartxref, PDSTRUCT *pPdStruct);
@@ -109,25 +109,24 @@ public:
     static QList<XVARIANT> getValuesByKey(QList<XPART> *pListObjects, const QString &sKey, PDSTRUCT *pPdStruct = nullptr);
     static XVARIANT getFirstStringValueByKey(QList<QString> *pListStrings, const QString &sKey, PDSTRUCT *pPdStruct = nullptr);
 
-    virtual qint32 getType() override;
-    virtual QString typeIdToString(qint32 nType) override;
+    qint32 getType() override;
+    QString typeIdToString(qint32 nType) override;
 
     QString getHeaderCommentAsHex(PDSTRUCT *pPdStruct);
 
-    virtual QList<FPART> getFileParts(quint32 nFileParts, qint32 nLimit = -1, PDSTRUCT *pPdStruct = nullptr) override;
+    QList<FPART> getFileParts(quint32 nFileParts, qint32 nLimit = -1, PDSTRUCT *pPdStruct = nullptr) override;
 
     QString getFilters(PDSTRUCT *pPdStruct = nullptr);
-    virtual QString getInfo(PDSTRUCT *pPdStruct = nullptr) override;
+    QString getInfo(PDSTRUCT *pPdStruct = nullptr) override;
 
-    // Streaming unpack API
-    virtual bool initUnpack(UNPACK_STATE *pState, const QMap<UNPACK_PROP, QVariant> &mapProperties, PDSTRUCT *pPdStruct = nullptr) override;
-    virtual ARCHIVERECORD infoCurrent(UNPACK_STATE *pState, PDSTRUCT *pPdStruct = nullptr) override;
-    virtual bool unpackCurrent(UNPACK_STATE *pState, QIODevice *pDevice, PDSTRUCT *pPdStruct = nullptr) override;
-    virtual bool moveToNext(UNPACK_STATE *pState, PDSTRUCT *pPdStruct = nullptr) override;
-    virtual bool finishUnpack(UNPACK_STATE *pState, PDSTRUCT *pPdStruct = nullptr) override;
+    bool initUnpack(UNPACK_STATE *pState, const QMap<UNPACK_PROP, QVariant> &mapProperties, PDSTRUCT *pPdStruct = nullptr) override;
+    ARCHIVERECORD infoCurrent(UNPACK_STATE *pState, PDSTRUCT *pPdStruct = nullptr) override;
+    bool unpackCurrent(UNPACK_STATE *pState, QIODevice *pDevice, PDSTRUCT *pPdStruct = nullptr) override;
+    bool moveToNext(UNPACK_STATE *pState, PDSTRUCT *pPdStruct = nullptr) override;
+    bool finishUnpack(UNPACK_STATE *pState, PDSTRUCT *pPdStruct = nullptr) override;
 
-    virtual QList<QString> getSearchSignatures() override;
-    virtual XBinary *createInstance(QIODevice *pDevice, bool bIsImage = false, XADDR nModuleAddress = -1) override;
+    QList<QString> getSearchSignatures() override;
+    XBinary *createInstance(QIODevice *pDevice, bool bIsImage = false, XADDR nModuleAddress = -1) override;
 
     static XVARIANT _parseValue(const QString &sValue);
 
