@@ -164,10 +164,6 @@ XPDF::XPDF(QIODevice *pDevice) : XBinary(pDevice)
 {
 }
 
-XPDF::~XPDF()
-{
-}
-
 bool XPDF::isValid(PDSTRUCT *pPdStruct)
 {
     Q_UNUSED(pPdStruct)
@@ -208,7 +204,7 @@ QString XPDF::getFileFormatExt()
 
 QString XPDF::getFileFormatExtsString()
 {
-    return QStringLiteral("PDF(pdf)");
+    return QStringLiteral("PDF (*.pdf)");
 }
 
 QString XPDF::getMIMEString()
@@ -1193,32 +1189,12 @@ bool XPDF::_isObject(const QString &sString)
 
 bool XPDF::_isString(const QString &sString)
 {
-    bool bResult = false;
-
-    qint32 nSize = sString.size();
-    if (nSize >= 2) {
-        if ((sString.at(0) == QChar('(')) && (sString.at(nSize - 1) == QChar(')'))) {
-            bResult = true;
-        }
-    }
-
-    return bResult;
+    return sString.size() >= 2 && sString.front() == QChar('(') && sString.back() == QChar(')');
 }
 
 bool XPDF::_isHex(const QString &sString)
 {
-    bool bResult = false;
-
-    qint32 nSize = sString.size();
-    if (nSize >= 2) {
-        if ((sString.at(0) == QChar('<')) && (sString.at(nSize - 1) == QChar('>'))) {
-            if (sString.at(0) != sString.at(1)) {
-                bResult = true;
-            }
-        }
-    }
-
-    return bResult;
+    return sString.size() >= 2 && sString.front() == QChar('<') && sString.back() == QChar('>') && sString.at(0) != sString.at(1);
 }
 
 bool XPDF::_isDateTime(const QString &sString)
@@ -1237,38 +1213,17 @@ bool XPDF::_isDateTime(const QString &sString)
 
 bool XPDF::_isEndObject(const QString &sString)
 {
-    qint32 nLeft = 0;
-    qint32 nRight = sString.size();
-    while (nLeft < nRight && sString.at(nLeft) == QChar(' ')) ++nLeft;
-    while (nRight > nLeft && sString.at(nRight - 1) == QChar(' ')) --nRight;
-    if (nRight - nLeft != 6) return false;
-    return (sString.at(nLeft) == QChar('e') && sString.at(nLeft + 1) == QChar('n') && sString.at(nLeft + 2) == QChar('d') && sString.at(nLeft + 3) == QChar('o') &&
-            sString.at(nLeft + 4) == QChar('b') && sString.at(nLeft + 5) == QChar('j'));
+    return sString.trimmed() == QLatin1String("endobj");
 }
 
 bool XPDF::_isComment(const QString &sString)
 {
-    bool bResult = false;
-
-    if (!sString.isEmpty()) {
-        bResult = (sString.at(0) == QChar('%'));
-    }
-
-    return bResult;
+    return !sString.isEmpty() && sString.at(0) == QChar('%');
 }
 
 bool XPDF::_isXref(const QString &sString)
 {
-    bool bResult = false;
-
-    if (!sString.isEmpty()) {
-        const qint32 nTLen = 4;
-        if (sString.size() >= nTLen && sString.at(0) == QChar('x') && sString.at(1) == QChar('r') && sString.at(2) == QChar('e') && sString.at(3) == QChar('f')) {
-            bResult = (sString.size() == nTLen) || (sString.at(4) == QChar(' '));
-        }
-    }
-
-    return bResult;
+    return sString.startsWith(QLatin1String("xref")) && (sString.size() == 4 || sString.at(4) == QChar(' '));
 }
 
 QString XPDF::_getCommentString(const QString &sString)
@@ -1944,7 +1899,7 @@ XBinary::ARCHIVERECORD XPDF::infoCurrent(UNPACK_STATE *pState, PDSTRUCT *pPdStru
         return result;
     }
 
-    UNPACK_CONTEXT *pContext = (UNPACK_CONTEXT *)pState->pContext;
+    UNPACK_CONTEXT *pContext = static_cast<UNPACK_CONTEXT *>(pState->pContext);
 
     if (pContext->nCurrentStreamIndex < 0 || pContext->nCurrentStreamIndex >= pContext->listStreams.count()) {
         return result;
@@ -2009,7 +1964,7 @@ bool XPDF::moveToNext(UNPACK_STATE *pState, PDSTRUCT *pPdStruct)
         return false;
     }
 
-    UNPACK_CONTEXT *pContext = (UNPACK_CONTEXT *)pState->pContext;
+    UNPACK_CONTEXT *pContext = static_cast<UNPACK_CONTEXT *>(pState->pContext);
 
     pContext->nCurrentStreamIndex++;
     pState->nCurrentIndex = pContext->nCurrentStreamIndex;
@@ -2026,7 +1981,7 @@ bool XPDF::finishUnpack(UNPACK_STATE *pState, PDSTRUCT *pPdStruct)
     }
 
     if (pState->pContext) {
-        UNPACK_CONTEXT *pContext = (UNPACK_CONTEXT *)pState->pContext;
+        UNPACK_CONTEXT *pContext = static_cast<UNPACK_CONTEXT *>(pState->pContext);
         delete pContext;
         pState->pContext = nullptr;
     }

@@ -62,7 +62,6 @@ public:
     };
 
     explicit XPDF(QIODevice *pDevice);
-    ~XPDF() override;
 
     bool isValid(PDSTRUCT *pPdStruct = nullptr) override;
     static bool isValid(QIODevice *pDevice, PDSTRUCT *pPdStruct = nullptr);
