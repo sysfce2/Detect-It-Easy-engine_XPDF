@@ -127,10 +127,14 @@ bool decompressPdfBuffer(const QByteArray &baData, XBinary::HANDLE_METHOD handle
 
     QBuffer sourceBuffer;
     sourceBuffer.setData(baData);
-    sourceBuffer.open(QIODevice::ReadOnly);
 
     QBuffer destBuffer;
-    destBuffer.open(QIODevice::WriteOnly);
+
+    if (!sourceBuffer.open(QIODevice::ReadOnly) || !destBuffer.open(QIODevice::WriteOnly)) {
+        sourceBuffer.close();
+        destBuffer.close();
+        return false;
+    }
 
     XBinary::DATAPROCESS_STATE state = {};
     state.pDeviceInput = &sourceBuffer;
@@ -1575,7 +1579,7 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
             const OBJECT &object = listObject.at(i);
 
             if (nFileParts & FILEPART_OBJECT) {
-                listResult.append(makeFilePart(FILEPART_OBJECT, object.nOffset, object.nSize, QString("%1 %2").arg(tr("Object"), QString::number(object.nID))));
+                listResult.append(makeFilePart(FILEPART_OBJECT, object.nOffset, object.nSize, QString("%1 %2").arg(tr("Object")).arg(QString::number(object.nID))));
             }
 
             if (nFileParts & FILEPART_STREAM) {
@@ -1587,7 +1591,7 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                     const STREAM &stream = xpart.listStreams.at(j);
 
                     XBinary::FPART record =
-                        makeFilePart(XBinary::FILEPART_STREAM, stream.nOffset, stream.nSize, QString("%1 obj (%2)").arg(tr("Stream"), QString::number(object.nID)));
+                        makeFilePart(XBinary::FILEPART_STREAM, stream.nOffset, stream.nSize, QString("%1 obj (%2)").arg(tr("Stream")).arg(QString::number(object.nID)));
 
                     const QString sFilter = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/Filter"), pPdStruct).var.toString();
                     const QString sSubtype = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/Subtype"), pPdStruct).var.toString();
@@ -1731,8 +1735,7 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                             record.mapProperties.insert(FPART_PROP_FILETYPE, XBinary::FT_JPEG);
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("jpg"));
                             record.mapProperties.insert(FPART_PROP_INFO, QString("%1 JPEG (%2 x %3) [%4] %5")
-                                                                             .arg(tr("Image"), QString::number(nWidth), QString::number(nHeight),
-                                                                                  QString::number(nBitsPerComponent), sColorSpace));
+                                                                             .arg(tr("Image")).arg(QString::number(nWidth)).arg(QString::number(nHeight)).arg(QString::number(nBitsPerComponent)).arg(sColorSpace));
                         } else if (sFilter == QLatin1String("/CCITTFaxDecode")) {
                             qint32 nCcittK = -1;
                             XBinary::XVARIANT varK = getFirstStringValueByKey(&(xpart.listParts), QLatin1String("/K"), pPdStruct);
@@ -1744,15 +1747,14 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("tif"));
                             record.mapProperties.insert(FPART_PROP_INFO,
                                                         QString("%1 CCITT (%2 x %3) [%4]")
-                                                            .arg(tr("Image"), QString::number(nWidth), QString::number(nHeight), QString::number(nBitsPerComponent)));
+                                                            .arg(tr("Image")).arg(QString::number(nWidth)).arg(QString::number(nHeight)).arg(QString::number(nBitsPerComponent)));
                         } else {
                             record.mapProperties.insert(FPART_PROP_HANDLEMETHOD2, decompressMethod);
                             record.mapProperties.insert(FPART_PROP_HANDLEMETHOD, HANDLE_METHOD_PDF_IMAGEDATA);
                             record.mapProperties.insert(FPART_PROP_FILETYPE, XBinary::FT_PNG);
                             record.mapProperties.insert(FPART_PROP_EXT, QStringLiteral("png"));
                             record.mapProperties.insert(FPART_PROP_INFO, QString("%1 RAW (%2 x %3) [%4] %5 %6")
-                                                                             .arg(tr("Image"), QString::number(nWidth), QString::number(nHeight),
-                                                                                  QString::number(nBitsPerComponent), sColorSpace, sFilter));
+                                                                             .arg(tr("Image")).arg(QString::number(nWidth)).arg(QString::number(nHeight)).arg(QString::number(nBitsPerComponent)).arg(sColorSpace).arg(sFilter));
                         }
                     } else {
                         if (sSubtype == QLatin1String("/XML")) {
@@ -1924,7 +1926,7 @@ XBinary::ARCHIVERECORD XPDF::infoCurrent(UNPACK_STATE *pState, PDSTRUCT *pPdStru
         }
     }
 
-    sFileName = QString("%1_%2.%3").arg(sFileName, QString::number(pContext->nCurrentStreamIndex), sExt);
+    sFileName = QString("%1_%2.%3").arg(sFileName).arg(QString::number(pContext->nCurrentStreamIndex)).arg(sExt);
 
     result.mapProperties.insert(FPART_PROP_ORIGINALNAME, sFileName);
     result.mapProperties.insert(FPART_PROP_UNCOMPRESSEDSIZE, stream.nFileSize);
