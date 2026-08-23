@@ -23,11 +23,22 @@
 #include <QBuffer>
 #include <QRegularExpression>
 #include <QTimeZone>
+#include <limits>
 #ifdef USE_PDFJSEMUL
 #include "xjsemul.h"
 #endif
 
 namespace {
+const qint64 PDF_DEFAULT_DECODE_OUTPUT_LIMIT = 100LL * 1024 * 1024;
+const qint64 PDF_PALETTE_DECODE_OUTPUT_LIMIT = 1LL * 1024 * 1024;
+
+qint64 pdfDecodeOutputLimit(qint64 nRequestedLimit)
+{
+    return (nRequestedLimit >= 0)
+               ? qMin(nRequestedLimit, PDF_DEFAULT_DECODE_OUTPUT_LIMIT)
+               : PDF_DEFAULT_DECODE_OUTPUT_LIMIT;
+}
+
 bool isPdfLineEnding(quint8 nChar)
 {
     return (nChar == 10) || (nChar == 13);
@@ -155,13 +166,20 @@ bool decompressPdfBuffer(const QByteArray &baData, XBinary::HANDLE_METHOD handle
 
     QBuffer destBuffer;
 
-    if (!sourceBuffer.open(QIODevice::ReadOnly) || !destBuffer.open(QIODevice::WriteOnly)) {
+    // ZLIB validates Adler32 by reading the completed output device.  Keep the
+    // private staging buffer readable as well as writable so that strict
+    // verification works for PDF FlateDecode stages.
+    if (!sourceBuffer.open(QIODevice::ReadOnly) || !destBuffer.open(QIODevice::ReadWrite)) {
         sourceBuffer.close();
         destBuffer.close();
         return false;
     }
 
     XBinary::DATAPROCESS_STATE state = {};
+    if (nProcessedLimit >= 0) {
+        state.mapUnpackProperties.insert(
+            XBinary::UNPACK_PROP_MAX_OUTPUT_SIZE, nProcessedLimit);
+    }
     state.pDeviceInput = &sourceBuffer;
     state.pDeviceOutput = &destBuffer;
     state.nInputOffset = 0;
@@ -195,7 +213,8 @@ bool decompressPdfBuffer(const QByteArray &baData, XBinary::HANDLE_METHOD handle
 bool decompressPdfChain(const QByteArray &baData, const QStringList &listFilters, QByteArray *pbaResult, XBinary::PDSTRUCT *pPdStruct,
                         qint64 nMaxOutput = 100 * 1024 * 1024)
 {
-    if (!pbaResult) return false;
+    if (!pbaResult || (nMaxOutput < -1) ||
+        ((nMaxOutput >= 0) && (baData.size() > nMaxOutput))) return false;
 
     XBinary::PDSTRUCT pdStructEmpty = XBinary::createPdStruct();
     if (!pPdStruct) {
@@ -229,7 +248,12 @@ bool decompressPdfChain(const QByteArray &baData, const QStringList &listFilters
                 pbaResult->clear();
                 return false;
             }
-            break;
+            // A supported stage that fails is not a partially successful
+            // chain.  In particular, a quota rejection in a later filter
+            // must not publish the preceding filter's intermediate bytes as
+            // the extracted stream.
+            pbaResult->clear();
+            return false;
         }
     }
 
@@ -843,7 +867,7 @@ QList<XPDF::OBJECT> XPDF::getObjectsFromStartxref(const STARTHREF *pStartxref, P
     return listResult;
 }
 
-void XPDF::scanStructure(PDSTRUCT *pPdStruct)
+void XPDF::scanStructure(PDSTRUCT *pPdStruct, qint64 nDecodeOutputLimit)
 {
     if (m_bStructScanned) {
         return;
@@ -887,7 +911,9 @@ void XPDF::scanStructure(PDSTRUCT *pPdStruct)
                 listPart = getObjectsFromStartxref(&startxref, pPdStruct);
             } else if (startxref.bIsObject) {
                 bool bXrefStream = false;
-                listPart = getObjectsFromXrefStream(startxref.nXrefOffset, &bXrefStream, pPdStruct);
+                listPart = getObjectsFromXrefStream(
+                    startxref.nXrefOffset, &bXrefStream, pPdStruct,
+                    nDecodeOutputLimit);
                 if (!isPdStructLifetimeAlive(progressLifetime)) {
                     failScan();
                     return;
@@ -929,7 +955,8 @@ void XPDF::scanStructure(PDSTRUCT *pPdStruct)
     m_bStructScanned = true;
 }
 
-QList<XPDF::OBJECT> XPDF::getObjectsFromXrefStream(qint64 nXrefOffset, bool *pbIsXrefStream, PDSTRUCT *pPdStruct)
+QList<XPDF::OBJECT> XPDF::getObjectsFromXrefStream(qint64 nXrefOffset, bool *pbIsXrefStream, PDSTRUCT *pPdStruct,
+                                                   qint64 nDecodeOutputLimit)
 {
     QList<OBJECT> listResult;
 
@@ -946,6 +973,8 @@ QList<XPDF::OBJECT> XPDF::getObjectsFromXrefStream(qint64 nXrefOffset, bool *pbI
     if (!bProgressOwnerAlive) return listResult;
 
     const qint64 nFileSize = getSize();
+    const qint64 nParserOutputLimit =
+        pdfDecodeOutputLimit(nDecodeOutputLimit);
     QSet<qint64> stVisited;
     QSet<quint64> stSeenIds;
     qint64 nCurrentXref = nXrefOffset;
@@ -1041,12 +1070,17 @@ QList<XPDF::OBJECT> XPDF::getObjectsFromXrefStream(qint64 nXrefOffset, bool *pbI
 
         const STREAM &stream = xpart.listStreams.at(0);
         QByteArray baData;
-        if ((stream.nSize > 0) && (stream.nSize <= (nFileSize - stream.nOffset))) {
+        if ((stream.nOffset >= 0) && (stream.nOffset <= nFileSize) &&
+            (stream.nSize > 0) &&
+            (stream.nSize <= (nFileSize - stream.nOffset)) &&
+            (stream.nSize <= nParserOutputLimit) &&
+            (stream.nSize <= (std::numeric_limits<qint32>::max)())) {
             QByteArray baRaw = read_array(stream.nOffset, stream.nSize);
             if (hm == HANDLE_METHOD_STORE) {
                 baData = baRaw;
             } else {
-                decompressPdfBuffer(baRaw, hm, -1, &baData, pPdStruct);
+                decompressPdfBuffer(baRaw, hm, nParserOutputLimit, &baData,
+                                    pPdStruct);
                 bProgressOwnerAlive = isPdStructLifetimeAlive(progressLifetime);
                 if (!bProgressOwnerAlive) return {};
             }
@@ -2839,7 +2873,12 @@ QString XPDF::getJavaScriptInfoString(QList<XPART> *pListObjects, PDSTRUCT *pPdS
                     XPART jsPart = handleXpart(nOffset, static_cast<qint32>(nId), -1, pPdStruct, true, &m_mapObjIdOffset);
                     if (!jsPart.listStreams.isEmpty()) {
                         const STREAM &stream = jsPart.listStreams.at(0);
-                        if ((stream.nSize > 0) && (stream.nSize <= (getSize() - stream.nOffset))) {
+                        const qint64 nFileSize = getSize();
+                        if ((stream.nOffset >= 0) &&
+                            (stream.nOffset <= nFileSize) &&
+                            (stream.nSize > 0) &&
+                            (stream.nSize <= PDF_DEFAULT_DECODE_OUTPUT_LIMIT) &&
+                            (stream.nSize <= (nFileSize - stream.nOffset))) {
                             QByteArray baRaw = read_array(stream.nOffset, stream.nSize);
                             if (m_bDecryptReady && m_security.bStreamsEncrypted) {
                                 baRaw = decryptContent(baRaw, nId, jsPart.nGen);  // stream encrypted with its own id+gen
@@ -2891,7 +2930,11 @@ QString XPDF::getJavaScriptInfoString(QList<XPART> *pListObjects, PDSTRUCT *pPdS
         }
 
         const STREAM &stream = full.listStreams.at(0);
-        if ((stream.nSize <= 0) || (stream.nSize > (getSize() - stream.nOffset))) {
+        const qint64 nFileSize = getSize();
+        if ((stream.nOffset < 0) || (stream.nOffset > nFileSize) ||
+            (stream.nSize <= 0) ||
+            (stream.nSize > PDF_DEFAULT_DECODE_OUTPUT_LIMIT) ||
+            (stream.nSize > (nFileSize - stream.nOffset))) {
             continue;
         }
 
@@ -3661,7 +3704,11 @@ QString XPDF::getSuspiciousInfoString(QList<XPART> *pListObjects, PDSTRUCT *pPdS
         const HANDLE_METHOD hm = listFilters.isEmpty() ? HANDLE_METHOD_STORE : pdfFilterToHandleMethod(listFilters.last());
 
         const STREAM &stream = full.listStreams.at(0);
-        if (stream.nSize <= 0) {
+        const qint64 nFileSize = getSize();
+        if ((stream.nOffset < 0) || (stream.nOffset > nFileSize) ||
+            (stream.nSize <= 0) ||
+            (stream.nSize > PDF_DEFAULT_DECODE_OUTPUT_LIMIT) ||
+            (stream.nSize > (nFileSize - stream.nOffset))) {
             continue;
         }
 
@@ -3704,6 +3751,14 @@ QString XPDF::getSuspiciousInfoString(QList<XPART> *pListObjects, PDSTRUCT *pPdS
 
 QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDSTRUCT *pPdStruct)
 {
+    return getFilePartsWithDecodeLimit(
+        nFileParts, nLimit, PDF_DEFAULT_DECODE_OUTPUT_LIMIT, pPdStruct);
+}
+
+QList<XBinary::FPART> XPDF::getFilePartsWithDecodeLimit(
+    quint32 nFileParts, qint32 nLimit, qint64 nDecodeOutputLimit,
+    PDSTRUCT *pPdStruct)
+{
     QList<XBinary::FPART> listResult;
 
     PDSTRUCT pdStructEmpty = XBinary::createPdStruct();
@@ -3716,7 +3771,9 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
 
     const qint64 totalSize = getSize();
 
-    scanStructure(pPdStruct);
+    const qint64 nParserOutputLimit =
+        pdfDecodeOutputLimit(nDecodeOutputLimit);
+    scanStructure(pPdStruct, nParserOutputLimit);
     bProgressOwnerAlive = isPdStructLifetimeAlive(progressLifetime);
     if (!bProgressOwnerAlive) return {};
 
@@ -3906,8 +3963,18 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                                 QString sPaletteToken = listTokens.at(3);
 
                                                 if (sPaletteToken.startsWith(QLatin1Char('<')) && sPaletteToken.endsWith(QLatin1Char('>'))) {
-                                                    QString sPaletteHex = sPaletteToken.mid(1, sPaletteToken.length() - 2);
-                                                    baPalette = QByteArray::fromHex(sPaletteHex.toLatin1());
+                                                    const qint64 nInlinePaletteLimit =
+                                                        qMin(nParserOutputLimit,
+                                                             PDF_PALETTE_DECODE_OUTPUT_LIMIT);
+                                                    if (sPaletteToken.size() <=
+                                                        (2 * nInlinePaletteLimit) + 2) {
+                                                        const QString sPaletteHex =
+                                                            sPaletteToken.mid(
+                                                                1,
+                                                                sPaletteToken.length() - 2);
+                                                        baPalette = QByteArray::fromHex(
+                                                            sPaletteHex.toLatin1());
+                                                    }
                                                 } else if (sPaletteToken.endsWith(QLatin1String(" R")) ||
                                                            ((listTokens.count() >= 6) && (listTokens.at(5) == QLatin1String("R")))) {
                                                     QString sObjRef;
@@ -3932,7 +3999,20 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
 
                                                         if (palPart.listStreams.count() > 0) {
                                                             const STREAM &palStream = palPart.listStreams.at(0);
-                                                            QByteArray baRawPalette = read_array_process(palStream.nOffset, palStream.nSize, pPdStruct);
+                                                            const qint64 nPaletteOutputLimit =
+                                                                qMin(nParserOutputLimit,
+                                                                     PDF_PALETTE_DECODE_OUTPUT_LIMIT);
+                                                            QByteArray baRawPalette;
+                                                            if ((palStream.nOffset >= 0) &&
+                                                                (palStream.nSize >= 0) &&
+                                                                (palStream.nSize <= nPaletteOutputLimit) &&
+                                                                (palStream.nOffset <= totalSize) &&
+                                                                (palStream.nSize <= totalSize - palStream.nOffset)) {
+                                                                baRawPalette = read_array_process(
+                                                                    palStream.nOffset,
+                                                                    palStream.nSize,
+                                                                    pPdStruct);
+                                                            }
                                                             bProgressOwnerAlive = isPdStructLifetimeAlive(progressLifetime);
                                                             if (!bProgressOwnerAlive) return {};
 
@@ -3952,7 +4032,10 @@ QList<XBinary::FPART> XPDF::getFileParts(quint32 nFileParts, qint32 nLimit, PDST
                                                                     QByteArray baDecodedPalette;
 
                                                                     const bool bPaletteDecoded =
-                                                                        decompressPdfBuffer(baRawPalette, palMethod, -1, &baDecodedPalette, pPdStruct);
+                                                                        decompressPdfBuffer(baRawPalette, palMethod,
+                                                                                            nPaletteOutputLimit,
+                                                                                            &baDecodedPalette,
+                                                                                            pPdStruct);
                                                                     bProgressOwnerAlive = isPdStructLifetimeAlive(progressLifetime);
                                                                     if (!bProgressOwnerAlive) return {};
                                                                     if (bPaletteDecoded && !baDecodedPalette.isEmpty()) {
@@ -4173,9 +4256,13 @@ QMap<XBinary::UNPACK_PROP, QVariant> XPDF::getDefaultUnpackProperties()
 
 bool XPDF::initUnpack(UNPACK_STATE *pState, const QMap<UNPACK_PROP, QVariant> &mapProperties, PDSTRUCT *pPdStruct)
 {
-    Q_UNUSED(mapProperties)
-
     if (!pState) {
+        return false;
+    }
+
+    qint64 nDecodeOutputLimit = -1;
+    if (!XBinary::getUnpackOutputLimit(mapProperties,
+                                       &nDecodeOutputLimit)) {
         return false;
     }
 
@@ -4196,7 +4283,8 @@ bool XPDF::initUnpack(UNPACK_STATE *pState, const QMap<UNPACK_PROP, QVariant> &m
     setupDecryption(QByteArray(), pPdStruct);
     if (!isPdStructLifetimeAlive(progressLifetime)) return false;
 
-    QList<XBinary::FPART> listStreams = getFileParts(FILEPART_STREAM, -1, pPdStruct);
+    QList<XBinary::FPART> listStreams = getFilePartsWithDecodeLimit(
+        FILEPART_STREAM, -1, nDecodeOutputLimit, pPdStruct);
     if (!isPdStructLifetimeAlive(progressLifetime)) return false;
 
     if (XBinary::isPdStructNotCanceled(pPdStruct)) {
@@ -4279,6 +4367,18 @@ bool XPDF::unpackCurrent(UNPACK_STATE *pState, QIODevice *pDevice, PDSTRUCT *pPd
         }
 
         ARCHIVERECORD archiveRecord = infoCurrent(pState, pPdStruct);
+        qint64 nMaxOutput = -1;
+        if (!XBinary::getUnpackOutputLimit(
+                pState->mapUnpackProperties, &nMaxOutput) ||
+            (archiveRecord.nStreamOffset < 0) ||
+            (archiveRecord.nStreamSize < 0) ||
+            (archiveRecord.nStreamSize >
+             (std::numeric_limits<qint32>::max)()) ||
+            !XBinary::isUnpackOutputSizeAllowed(
+                pState->mapUnpackProperties,
+                archiveRecord.nStreamSize)) {
+            return false;
+        }
 
         const QString sFilterName = archiveRecord.mapProperties.value(FPART_PROP_FILTERNAME).toString();
         const QStringList listFilters = sFilterName.split(QLatin1Char(' '), Qt::SkipEmptyParts);
@@ -4305,13 +4405,13 @@ bool XPDF::unpackCurrent(UNPACK_STATE *pState, QIODevice *pDevice, PDSTRUCT *pPd
             }
             if (bAllDecodable) {
                 QByteArray baChain;
-                if (decompressPdfChain(baDecrypted, listFilters, &baChain, pPdStruct, -1)) {
-                    baOut = baChain;
-                }
+                if (!decompressPdfChain(baDecrypted, listFilters, &baChain,
+                                        pPdStruct, nMaxOutput)) return false;
+                baOut = baChain;
             }
 
-            const qint64 nWritten = pDevice->write(baOut);
-            return (nWritten == static_cast<qint64>(baOut.size()));
+            return XBinary::writeUnpackData(pState, pDevice, baOut,
+                                            pPdStruct);
         }
 
         // Multi-filter cascade (e.g. [/ASCII85Decode /FlateDecode]): the single-method decompressor can't
@@ -4328,10 +4428,10 @@ bool XPDF::unpackCurrent(UNPACK_STATE *pState, QIODevice *pDevice, PDSTRUCT *pPd
             if (bAllDecodable && (archiveRecord.nStreamSize > 0)) {
                 QByteArray baRaw = read_array(archiveRecord.nStreamOffset, archiveRecord.nStreamSize);
                 QByteArray baDecoded;
-                if (decompressPdfChain(baRaw, listFilters, &baDecoded, pPdStruct, -1)) {
-                    const qint64 nWritten = pDevice->write(baDecoded);
-                    return (nWritten == static_cast<qint64>(baDecoded.size()));
-                }
+                if (!decompressPdfChain(baRaw, listFilters, &baDecoded,
+                                        pPdStruct, nMaxOutput)) return false;
+                return XBinary::writeUnpackData(pState, pDevice, baDecoded,
+                                                pPdStruct);
             }
         }
 
