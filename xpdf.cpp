@@ -4380,6 +4380,23 @@ bool XPDF::unpackCurrent(UNPACK_STATE *pState, QIODevice *pDevice, PDSTRUCT *pPd
             return false;
         }
 
+        // This override bypasses the base decode chain's per-entry gate;
+        // account the member here. Produced bytes are charged either by
+        // writeUnpackData (decrypted/chain branches) or by _writeDevice
+        // through the budget threaded into decompressArchiveRecord.
+        if (pState->spOutputBudget) {
+            if (!pState->spOutputBudget->beginEntry(
+                    pState->nCurrentIndex,
+                    archiveRecord.mapProperties.value(FPART_PROP_ORIGINALNAME).toString())) {
+                if (pState->spOutputBudget->isEnforcing()) {
+                    XBinary::setPdStructErrorString(
+                        pPdStruct, tr("Unpacked output exceeds the configured limit"));
+                    return false;
+                }
+                XBinary::OUTPUT_BUDGET::noteShadowRefusal(pState->spOutputBudget.data());
+            }
+        }
+
         const QString sFilterName = archiveRecord.mapProperties.value(FPART_PROP_FILTERNAME).toString();
         const QStringList listFilters = sFilterName.split(QLatin1Char(' '), Qt::SkipEmptyParts);
 
@@ -4439,7 +4456,8 @@ bool XPDF::unpackCurrent(UNPACK_STATE *pState, QIODevice *pDevice, PDSTRUCT *pPd
         connect(&xDecompress, &XDecompress::errorMessage, this, &XBinary::errorMessage);
         connect(&xDecompress, &XDecompress::infoMessage, this, &XBinary::infoMessage);
 
-        bResult = xDecompress.decompressArchiveRecord(archiveRecord, getDevice(), pDevice, pState->mapUnpackProperties, pPdStruct);
+        bResult = xDecompress.decompressArchiveRecord(archiveRecord, getDevice(), pDevice, pState->mapUnpackProperties, pPdStruct,
+                                                      pState->spOutputBudget);
     }
 
     return bResult;
