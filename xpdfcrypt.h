@@ -39,14 +39,13 @@ public:
         bool bEncryptMetadata;
         bool bStreamsEncrypted;  // /StmF != /Identity (streams left in clear when false)
         bool bStringsEncrypted;  // /StrF != /Identity (strings left in clear when false)
-        QByteArray baO;    // /O (>=32 bytes; R6: 48)
-        QByteArray baU;    // /U (>=32 bytes; R6: 48)
-        QByteArray baOE;   // /OE (R6)
-        QByteArray baUE;   // /UE (R6)
-        QByteArray baID;   // trailer /ID[0]
+        QByteArray baO;          // /O (>=32 bytes; R6: 48)
+        QByteArray baU;          // /U (>=32 bytes; R6: 48)
+        QByteArray baOE;         // /OE (R6)
+        QByteArray baUE;         // /UE (R6)
+        QByteArray baID;         // trailer /ID[0]
 
-        SECURITY()
-            : nV(0), nR(0), nKeyBytes(5), nP(0), bAES(false), bAES256(false), bEncryptMetadata(true), bStreamsEncrypted(true), bStringsEncrypted(true)
+        SECURITY() : nV(0), nR(0), nKeyBytes(5), nP(0), bAES(false), bAES256(false), bEncryptMetadata(true), bStreamsEncrypted(true), bStringsEncrypted(true)
         {
         }
     };

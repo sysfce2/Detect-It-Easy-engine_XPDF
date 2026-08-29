@@ -58,7 +58,7 @@ private:
     Node *parseTry();
     Node *parseSwitch();
 
-    Node *parseExpression();      // full expression (allows comma sequence)
+    Node *parseExpression();  // full expression (allows comma sequence)
     Node *parseAssignment();
     Node *parseConditional();
     Node *parseBinary(qint32 nMinPrec);

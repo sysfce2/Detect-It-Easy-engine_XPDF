@@ -37,7 +37,14 @@ class XJSParser;
 // JSObject through a QSharedPointer; primitives are held inline.
 class XJSValue {
 public:
-    enum VType { V_UNDEFINED, V_NULL, V_BOOL, V_NUMBER, V_STRING, V_OBJECT };
+    enum VType {
+        V_UNDEFINED,
+        V_NULL,
+        V_BOOL,
+        V_NUMBER,
+        V_STRING,
+        V_OBJECT
+    };
 
     VType type;
     bool b;
@@ -71,7 +78,13 @@ public:
 // Object / array / function / native / regex, distinguished by kind + className.
 class JSObject {
 public:
-    enum OKind { O_PLAIN, O_ARRAY, O_FUNCTION, O_NATIVE, O_REGEX };
+    enum OKind {
+        O_PLAIN,
+        O_ARRAY,
+        O_FUNCTION,
+        O_NATIVE,
+        O_REGEX
+    };
 
     OKind kind;
     QMap<QString, XJSValue> props;
@@ -101,11 +114,11 @@ struct Environment {
 
 // Analysis result produced by a run.
 struct XJSReport {
-    QStringList apiCalls;        // notable Acrobat/JS API invocations (dangerous surface)
-    QStringList evalArguments;   // deobfuscated payloads passed to eval/Function/setTimeout
-    QStringList strings;         // other notable strings the script materialised
-    QStringList indicators;      // heuristic exploit indicators
-    QString consoleOutput;       // app.alert / console.println / print output
+    QStringList apiCalls;       // notable Acrobat/JS API invocations (dangerous surface)
+    QStringList evalArguments;  // deobfuscated payloads passed to eval/Function/setTimeout
+    QStringList strings;        // other notable strings the script materialised
+    QStringList indicators;     // heuristic exploit indicators
+    QString consoleOutput;      // app.alert / console.println / print output
     bool bError;
     QString errorMessage;
 
@@ -125,7 +138,13 @@ public:
     void setStepLimit(qint64 nStepLimit);
 
 private:
-    enum Completion { C_NORMAL, C_RETURN, C_BREAK, C_CONTINUE, C_THROW };
+    enum Completion {
+        C_NORMAL,
+        C_RETURN,
+        C_BREAK,
+        C_CONTINUE,
+        C_THROW
+    };
 
     Environment *newEnv(Environment *pParent);
     QSharedPointer<JSObject> newObject(JSObject::OKind kind);

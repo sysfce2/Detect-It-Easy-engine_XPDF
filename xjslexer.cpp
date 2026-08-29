@@ -39,13 +39,13 @@ bool XJSLexer::isIdentPart(QChar c)
 bool XJSLexer::isKeyword(const QString &s)
 {
     return (s == QLatin1String("var")) || (s == QLatin1String("let")) || (s == QLatin1String("const")) || (s == QLatin1String("function")) ||
-           (s == QLatin1String("return")) || (s == QLatin1String("if")) || (s == QLatin1String("else")) || (s == QLatin1String("for")) ||
-           (s == QLatin1String("while")) || (s == QLatin1String("do")) || (s == QLatin1String("break")) || (s == QLatin1String("continue")) ||
-           (s == QLatin1String("new")) || (s == QLatin1String("delete")) || (s == QLatin1String("typeof")) || (s == QLatin1String("instanceof")) ||
-           (s == QLatin1String("in")) || (s == QLatin1String("this")) || (s == QLatin1String("true")) || (s == QLatin1String("false")) ||
-           (s == QLatin1String("null")) || (s == QLatin1String("undefined")) || (s == QLatin1String("void")) || (s == QLatin1String("switch")) ||
-           (s == QLatin1String("case")) || (s == QLatin1String("default")) || (s == QLatin1String("try")) || (s == QLatin1String("catch")) ||
-           (s == QLatin1String("finally")) || (s == QLatin1String("throw"));
+           (s == QLatin1String("return")) || (s == QLatin1String("if")) || (s == QLatin1String("else")) || (s == QLatin1String("for")) || (s == QLatin1String("while")) ||
+           (s == QLatin1String("do")) || (s == QLatin1String("break")) || (s == QLatin1String("continue")) || (s == QLatin1String("new")) ||
+           (s == QLatin1String("delete")) || (s == QLatin1String("typeof")) || (s == QLatin1String("instanceof")) || (s == QLatin1String("in")) ||
+           (s == QLatin1String("this")) || (s == QLatin1String("true")) || (s == QLatin1String("false")) || (s == QLatin1String("null")) ||
+           (s == QLatin1String("undefined")) || (s == QLatin1String("void")) || (s == QLatin1String("switch")) || (s == QLatin1String("case")) ||
+           (s == QLatin1String("default")) || (s == QLatin1String("try")) || (s == QLatin1String("catch")) || (s == QLatin1String("finally")) ||
+           (s == QLatin1String("throw"));
 }
 
 bool XJSLexer::regexAllowed(const Token *pPrev)
@@ -73,8 +73,8 @@ bool XJSLexer::regexAllowed(const Token *pPrev)
 
     if (pPrev->type == TT_PUNCT) {
         // After a closing ) ] } or ++/-- a '/' is division; otherwise a regex may start.
-        if ((pPrev->text == QLatin1String(")")) || (pPrev->text == QLatin1String("]")) || (pPrev->text == QLatin1String("}")) ||
-            (pPrev->text == QLatin1String("++")) || (pPrev->text == QLatin1String("--"))) {
+        if ((pPrev->text == QLatin1String(")")) || (pPrev->text == QLatin1String("]")) || (pPrev->text == QLatin1String("}")) || (pPrev->text == QLatin1String("++")) ||
+            (pPrev->text == QLatin1String("--"))) {
             return false;
         }
         return true;
@@ -340,8 +340,7 @@ QList<Token> XJSLexer::tokenize(const QString &sSource, bool *pbError)
 
         // Punctuators (longest match first).
         static const char *const sPuncts3[] = {"===", "!==", ">>>", "**=", "<<=", ">>=", "..."};
-        static const char *const sPuncts2[] = {"==", "!=", "<=", ">=", "&&", "||", "++", "--", "+=", "-=", "*=", "/=",
-                                               "%=", "&=", "|=", "^=", "<<", ">>", "=>", "**"};
+        static const char *const sPuncts2[] = {"==", "!=", "<=", ">=", "&&", "||", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>", "=>", "**"};
         bool bMatched = false;
 
         for (qint32 p = 0; p < 7; ++p) {

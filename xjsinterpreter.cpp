@@ -182,8 +182,14 @@ static quint32 toUint32(double d)
 // ---------------------------------------------------------------------------
 
 XJSInterpreter::XJSInterpreter()
-    : m_pReport(nullptr), m_pGlobal(nullptr), m_completion(C_NORMAL), m_nSteps(0), m_nStepLimit(5000000), m_nCallDepth(0),
-      m_nCallDepthLimit(200), m_nMaxStringLength(16 * 1024 * 1024)
+    : m_pReport(nullptr),
+      m_pGlobal(nullptr),
+      m_completion(C_NORMAL),
+      m_nSteps(0),
+      m_nStepLimit(5000000),
+      m_nCallDepth(0),
+      m_nCallDepthLimit(200),
+      m_nMaxStringLength(16 * 1024 * 1024)
 {
 }
 
@@ -356,10 +362,26 @@ void XJSInterpreter::run(Node *pProgram, XJSReport *pReport)
 void XJSInterpreter::buildGlobals()
 {
     // Global functions.
-    static const char *const sGlobals[] = {"eval",      "unescape", "escape",     "encodeURIComponent", "decodeURIComponent", "encodeURI",
-                                           "decodeURI", "parseInt", "parseFloat", "isNaN",              "isFinite",           "String",
-                                           "Number",    "Boolean",  "print",      "alert",              "setTimeout",         "setInterval",
-                                           "Function",  "importScripts"};
+    static const char *const sGlobals[] = {"eval",
+                                           "unescape",
+                                           "escape",
+                                           "encodeURIComponent",
+                                           "decodeURIComponent",
+                                           "encodeURI",
+                                           "decodeURI",
+                                           "parseInt",
+                                           "parseFloat",
+                                           "isNaN",
+                                           "isFinite",
+                                           "String",
+                                           "Number",
+                                           "Boolean",
+                                           "print",
+                                           "alert",
+                                           "setTimeout",
+                                           "setInterval",
+                                           "Function",
+                                           "importScripts"};
     for (qint32 i = 0; i < 20; ++i) {
         const QString sName = QString::fromLatin1(sGlobals[i]);
         declare(sName, XJSValue::object(newNative(sName)), m_pGlobal);
@@ -459,13 +481,9 @@ void XJSInterpreter::execStmt(Node *pNode, Environment *pEnv)
         case N_FUNCTION:  // hoisted already
             break;
 
-        case N_BLOCK:
-            execBlock(pNode, pEnv);
-            break;
+        case N_BLOCK: execBlock(pNode, pEnv); break;
 
-        case N_EXPRSTMT:
-            evalNode(pNode->a, pEnv);
-            break;
+        case N_EXPRSTMT: evalNode(pNode->a, pEnv); break;
 
         case N_VARDECL: {
             for (qint32 i = 0; (i < pNode->list.count()) && (m_completion == C_NORMAL); ++i) {
@@ -583,13 +601,9 @@ void XJSInterpreter::execStmt(Node *pNode, Environment *pEnv)
             }
             break;
 
-        case N_BREAK:
-            m_completion = C_BREAK;
-            break;
+        case N_BREAK: m_completion = C_BREAK; break;
 
-        case N_CONTINUE:
-            m_completion = C_CONTINUE;
-            break;
+        case N_CONTINUE: m_completion = C_CONTINUE; break;
 
         case N_THROW: {
             const XJSValue v = pNode->a ? evalNode(pNode->a, pEnv) : XJSValue::undef();
@@ -655,9 +669,7 @@ void XJSInterpreter::execStmt(Node *pNode, Environment *pEnv)
             break;
         }
 
-        default:
-            evalNode(pNode, pEnv);
-            break;
+        default: evalNode(pNode, pEnv); break;
     }
 }
 
@@ -677,20 +689,13 @@ XJSValue XJSInterpreter::evalNode(Node *pNode, Environment *pEnv)
     }
 
     switch (pNode->type) {
-        case N_NUMBER:
-            return XJSValue::number(pNode->num);
-        case N_STRING:
-            return XJSValue::string(pNode->sval);
-        case N_BOOL:
-            return XJSValue::boolean(pNode->bval);
-        case N_NULL:
-            return XJSValue::null();
-        case N_UNDEFINED:
-            return XJSValue::undef();
-        case N_IDENT:
-            return lookup(pNode->sval, pEnv);
-        case N_THIS:
-            return lookup(QStringLiteral("this"), pEnv);
+        case N_NUMBER: return XJSValue::number(pNode->num);
+        case N_STRING: return XJSValue::string(pNode->sval);
+        case N_BOOL: return XJSValue::boolean(pNode->bval);
+        case N_NULL: return XJSValue::null();
+        case N_UNDEFINED: return XJSValue::undef();
+        case N_IDENT: return lookup(pNode->sval, pEnv);
+        case N_THIS: return lookup(QStringLiteral("this"), pEnv);
 
         case N_REGEX: {
             QSharedPointer<JSObject> p = newObject(JSObject::O_REGEX);
@@ -726,8 +731,7 @@ XJSValue XJSInterpreter::evalNode(Node *pNode, Environment *pEnv)
             return XJSValue::object(p);
         }
 
-        case N_MEMBER:
-            return getMember(evalNode(pNode->a, pEnv), pNode->sval);
+        case N_MEMBER: return getMember(evalNode(pNode->a, pEnv), pNode->sval);
 
         case N_INDEX: {
             const XJSValue base = evalNode(pNode->a, pEnv);
@@ -735,8 +739,7 @@ XJSValue XJSInterpreter::evalNode(Node *pNode, Environment *pEnv)
             return getMember(base, key.toStr());
         }
 
-        case N_CALL:
-            return evalCall(pNode, pEnv);
+        case N_CALL: return evalCall(pNode, pEnv);
 
         case N_NEW: {
             // Constructors relevant to PDF JS: Array, RegExp, Function (== eval), Date/Object (plain).
@@ -785,11 +788,9 @@ XJSValue XJSInterpreter::evalNode(Node *pNode, Environment *pEnv)
             return XJSValue::object(newObject(JSObject::O_PLAIN));
         }
 
-        case N_UNARY:
-            return evalUnary(pNode, pEnv);
+        case N_UNARY: return evalUnary(pNode, pEnv);
 
-        case N_BINARY:
-            return evalBinary(pNode->sval, evalNode(pNode->a, pEnv), evalNode(pNode->b, pEnv));
+        case N_BINARY: return evalBinary(pNode->sval, evalNode(pNode->a, pEnv), evalNode(pNode->b, pEnv));
 
         case N_LOGICAL: {
             const XJSValue l = evalNode(pNode->a, pEnv);
@@ -799,18 +800,13 @@ XJSValue XJSInterpreter::evalNode(Node *pNode, Environment *pEnv)
             return l.toBool() ? l : evalNode(pNode->b, pEnv);
         }
 
-        case N_ASSIGN:
-            return evalAssign(pNode, pEnv);
+        case N_ASSIGN: return evalAssign(pNode, pEnv);
 
-        case N_COND:
-            return evalNode(pNode->a, pEnv).toBool() ? evalNode(pNode->b, pEnv) : evalNode(pNode->c, pEnv);
+        case N_COND: return evalNode(pNode->a, pEnv).toBool() ? evalNode(pNode->b, pEnv) : evalNode(pNode->c, pEnv);
 
-        case N_SEQ:
-            evalNode(pNode->a, pEnv);
-            return evalNode(pNode->b, pEnv);
+        case N_SEQ: evalNode(pNode->a, pEnv); return evalNode(pNode->b, pEnv);
 
-        default:
-            return XJSValue::undef();
+        default: return XJSValue::undef();
     }
 }
 
@@ -1452,7 +1448,11 @@ XJSValue XJSInterpreter::nativeStringMethod(const XJSValue &base, const QString 
         if (end < 0) end = 0;
         if (end > s.length()) end = s.length();
         if (start > s.length()) start = s.length();
-        if (start > end) { const int t = start; start = end; end = t; }
+        if (start > end) {
+            const int t = start;
+            start = end;
+            end = t;
+        }
         return XJSValue::string(s.mid(start, end - start));
     }
     if (sMethod == QLatin1String("substr")) {
@@ -1688,8 +1688,7 @@ XJSValue XJSInterpreter::jsEscape(const QString &s)
         const QChar c = s.at(i);
         if (c.isLetterOrNumber() && (u < 128)) {
             r.append(c);
-        } else if ((c == QChar('@')) || (c == QChar('*')) || (c == QChar('_')) || (c == QChar('+')) || (c == QChar('-')) || (c == QChar('.')) ||
-                   (c == QChar('/'))) {
+        } else if ((c == QChar('@')) || (c == QChar('*')) || (c == QChar('_')) || (c == QChar('+')) || (c == QChar('-')) || (c == QChar('.')) || (c == QChar('/'))) {
             r.append(c);
         } else if (u < 256) {
             r.append(QChar('%'));

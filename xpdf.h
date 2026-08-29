@@ -92,8 +92,7 @@ public:
     QList<STARTHREF> findStartxrefs(qint64 nOffset, PDSTRUCT *pPdStruct);
     QList<OBJECT> getObjectsFromStartxref(const STARTHREF *pStartxref, PDSTRUCT *pPdStruct);
     // Decode a PDF 1.5+ cross-reference stream (/Type /XRef). Fills *pbIsXrefStream when the target is a decodable xref stream.
-    QList<OBJECT> getObjectsFromXrefStream(qint64 nXrefOffset, bool *pbIsXrefStream, PDSTRUCT *pPdStruct,
-                                           qint64 nDecodeOutputLimit = -1);
+    QList<OBJECT> getObjectsFromXrefStream(qint64 nXrefOffset, bool *pbIsXrefStream, PDSTRUCT *pPdStruct, qint64 nDecodeOutputLimit = -1);
     QList<OBJECT> findObjects(qint64 nOffset, qint64 nSize, bool bDeepScan, PDSTRUCT *pPdStruct);
     OS_STRING _readPDFString(qint64 nOffset, qint64 nSize, PDSTRUCT *pPdStruct);
     OS_STRING _readPDFStringPart_title(qint64 nOffset, qint64 nSize, PDSTRUCT *pPdStruct);
@@ -197,8 +196,7 @@ private:
 
     // Populate the per-instance structural cache (header offset, startxrefs, object list, id->offset index).
     void scanStructure(PDSTRUCT *pPdStruct, qint64 nDecodeOutputLimit = -1);
-    QList<FPART> getFilePartsWithDecodeLimit(quint32 nFileParts, qint32 nLimit,
-                                             qint64 nDecodeOutputLimit, PDSTRUCT *pPdStruct);
+    QList<FPART> getFilePartsWithDecodeLimit(quint32 nFileParts, qint32 nLimit, qint64 nDecodeOutputLimit, PDSTRUCT *pPdStruct);
     // Raw string-value bytes for a key ("(...)"/"<hex>" -> QByteArray); trailer /ID[0] bytes.
     static QByteArray _getRawBytesByKey(const QList<QString> *pListParts, const QString &sKey);
     QByteArray findTrailerID(PDSTRUCT *pPdStruct);
@@ -223,7 +221,7 @@ private:
 
     bool m_bDecryptChecked;
     bool m_bDecryptReady;
-    bool m_bDecryptOwner;         // the winning password validated as OWNER (not user)
+    bool m_bDecryptOwner;            // the winning password validated as OWNER (not user)
     QByteArray m_baDecryptPassword;  // the password that unlocked the file (empty = empty user password)
     XPDFCrypt::SECURITY m_security;
     QByteArray m_baFileKey;

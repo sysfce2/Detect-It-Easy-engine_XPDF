@@ -101,8 +101,7 @@ QByteArray XPDFCrypt::aesCbcDecrypt(const QByteArray &baKey, const QByteArray &b
     }
 
     QByteArray baResult(baCipher.size(), Qt::Uninitialized);
-    if (!XAESDecoder::decryptAESCBC(baKey, baIV, reinterpret_cast<const quint8 *>(baCipher.constData()), reinterpret_cast<quint8 *>(baResult.data()),
-                                    baCipher.size())) {
+    if (!XAESDecoder::decryptAESCBC(baKey, baIV, reinterpret_cast<const quint8 *>(baCipher.constData()), reinterpret_cast<quint8 *>(baResult.data()), baCipher.size())) {
         return QByteArray();
     }
 
