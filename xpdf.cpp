@@ -875,21 +875,19 @@ void XPDF::scanStructure(PDSTRUCT *pPdStruct, qint64 nDecodeOutputLimit)
     }
     const PDSTRUCTLIFETIME progressLifetime = retainPdStructLifetime(pPdStruct);
     if (!progressLifetime.isValid()) return;
-    const auto failScan = [&]() {
+    getHeaderOffset(pPdStruct);  // ensure the header offset is resolved and cached
+    if (!isPdStructLifetimeAlive(progressLifetime)) {
         m_listStartHrefs.clear();
         m_listObjectsCache.clear();
         m_mapObjIdOffset.clear();
-    };
-
-    getHeaderOffset(pPdStruct);  // ensure the header offset is resolved and cached
-    if (!isPdStructLifetimeAlive(progressLifetime)) {
-        failScan();
         return;
     }
 
     m_listStartHrefs = findStartxrefs(0, pPdStruct);
     if (!isPdStructLifetimeAlive(progressLifetime)) {
-        failScan();
+        m_listStartHrefs.clear();
+        m_listObjectsCache.clear();
+        m_mapObjIdOffset.clear();
         return;
     }
     m_listObjectsCache.clear();
@@ -909,7 +907,9 @@ void XPDF::scanStructure(PDSTRUCT *pPdStruct, qint64 nDecodeOutputLimit)
                 bool bXrefStream = false;
                 listPart = getObjectsFromXrefStream(startxref.nXrefOffset, &bXrefStream, pPdStruct, nDecodeOutputLimit);
                 if (!isPdStructLifetimeAlive(progressLifetime)) {
-                    failScan();
+                    m_listStartHrefs.clear();
+                    m_listObjectsCache.clear();
+                    m_mapObjIdOffset.clear();
                     return;
                 }
                 if (!bXrefStream) {
@@ -918,7 +918,9 @@ void XPDF::scanStructure(PDSTRUCT *pPdStruct, qint64 nDecodeOutputLimit)
                 }
             }
             if (!isPdStructLifetimeAlive(progressLifetime)) {
-                failScan();
+                m_listStartHrefs.clear();
+                m_listObjectsCache.clear();
+                m_mapObjIdOffset.clear();
                 return;
             }
 
@@ -937,7 +939,9 @@ void XPDF::scanStructure(PDSTRUCT *pPdStruct, qint64 nDecodeOutputLimit)
     } else {
         m_listObjectsCache = findObjects(0, -1, false, pPdStruct);
         if (!isPdStructLifetimeAlive(progressLifetime)) {
-            failScan();
+            m_listStartHrefs.clear();
+            m_listObjectsCache.clear();
+            m_mapObjIdOffset.clear();
             return;
         }
         const qint32 nCount = m_listObjectsCache.count();
@@ -3583,33 +3587,34 @@ QVector<XBinary::XMETADATA_STRUCT> XPDF::getMetadataStructs()
     }
 
     const QList<FPART> listStreams = getFileParts(FILEPART_STREAM, -1, &pdStruct);
+    const FPART_PROP streamProperties[] = {FPART_PROP_WIDTH, FPART_PROP_HEIGHT, FPART_PROP_BITSPERCOMPONENT, FPART_PROP_COLORSPACE};
+    const XMETADATA_ID streamPropertyIDs[] = {XMETADATA_ID_FRAME_WIDTH, XMETADATA_ID_FRAME_HEIGHT, XMETADATA_ID_BIT_DEPTH, XMETADATA_ID_COLOR_SPACE};
+    const QString streamPropertyNames[] = {QString("Width"), QString("Height"), QString("Bits per component"), QString("Color space")};
+    const qint32 nNumberOfStreamProperties = static_cast<qint32>(sizeof(streamProperties) / sizeof(FPART_PROP));
+
     for (qint32 i = 0; i < listStreams.count(); ++i) {
         const FPART &stream = listStreams.at(i);
 
-        auto appendProperty = [this, &listResult, &stream](FPART_PROP property, XMETADATA_ID id, const QString &sName) {
+        for (qint32 j = 0; j < nNumberOfStreamProperties; ++j) {
+            const FPART_PROP property = streamProperties[j];
             if (!stream.mapProperties.contains(property)) {
-                return;
+                continue;
             }
 
             const QVariant varValue = stream.mapProperties.value(property);
             if (varValue.toString().isEmpty()) {
-                return;
+                continue;
             }
 
             XMETADATA_STRUCT record = {};
             record.nOffset = stream.nFileOffset;
             record.nSize = stream.nFileSize;
             record.nAddress = offsetToAddress(stream.nFileOffset);
-            record.id = id;
-            record.sName = QString("%1: %2").arg(stream.sName, sName);
+            record.id = streamPropertyIDs[j];
+            record.sName = QString("%1: %2").arg(stream.sName, streamPropertyNames[j]);
             record.varValue = varValue;
             listResult.append(record);
-        };
-
-        appendProperty(FPART_PROP_WIDTH, XMETADATA_ID_FRAME_WIDTH, QString("Width"));
-        appendProperty(FPART_PROP_HEIGHT, XMETADATA_ID_FRAME_HEIGHT, QString("Height"));
-        appendProperty(FPART_PROP_BITSPERCOMPONENT, XMETADATA_ID_BIT_DEPTH, QString("Bits per component"));
-        appendProperty(FPART_PROP_COLORSPACE, XMETADATA_ID_COLOR_SPACE, QString("Color space"));
+        }
     }
 
     return listResult;
